@@ -22,6 +22,7 @@ const assignment = {
   status: 'assigned' as const,
   assigned_at: new Date('2026-09-20T00:00:00.000Z'),
   accepted_at: null,
+  completed_at: null,
   created_at: new Date('2026-09-20T00:00:00.000Z'),
 };
 
@@ -121,6 +122,7 @@ describe('AssignmentsService', () => {
     expect(database.writes.assignment).toMatchObject({ status: 'accepted', accepted_at: expect.any(Date) });
     expect(database.writes.delivery).toMatchObject({ status: 'accepted', delivery_version: 3 });
     expect(database.writes.rider).toBeUndefined();
+    expect(result.status).toBe('accepted');
     expect(database.writes.events).toEqual([
       expect.objectContaining({ event_type: 'rider_accepted', rider_id: rider.id }),
     ]);
@@ -143,6 +145,147 @@ describe('AssignmentsService', () => {
       status: 409,
     });
   });
+
+  it('marks an accepted delivery as picked up and records an event', async () => {
+    const acceptedDelivery = { ...delivery, status: 'accepted' as const, delivery_version: 3 };
+    const acceptedAssignment = { ...assignment, status: 'accepted' as const };
+    const database = transactionDatabase({
+      delivery: acceptedDelivery,
+      rider: { ...rider, status: 'busy' as const },
+      activeAssignment: acceptedAssignment,
+      updatedDelivery: { status: 'picked_up', delivery_version: 4 },
+    });
+
+    const result = await new AssignmentsService(database).pickedUp(
+      acceptedDelivery.id,
+      rider.id,
+    );
+
+    expect(database.writes.delivery).toMatchObject({
+      status: 'picked_up',
+      delivery_version: 4,
+    });
+    expect(database.writes.rider).toBeUndefined();
+    expect(database.writes.events).toEqual([
+      expect.objectContaining({ event_type: 'delivery_picked_up', rider_id: rider.id }),
+    ]);
+    expect(result).toMatchObject({ deliveryStatus: 'picked_up', deliveryVersion: 4 });
+  });
+
+  it('rejects pickup by a rider without the accepted assignment', async () => {
+    const database = transactionDatabase({
+      delivery: { ...delivery, status: 'accepted' as const },
+      rider: { ...rider, status: 'busy' as const },
+    });
+
+    await expect(new AssignmentsService(database).pickedUp(delivery.id, rider.id)).rejects.toMatchObject({
+      response: { code: 'assignment_not_accepted' },
+      status: 409,
+    });
+  });
+
+  it('rejects pickup when the delivery is not accepted', async () => {
+    const database = transactionDatabase({
+      delivery,
+      rider: { ...rider, status: 'busy' as const },
+    });
+
+    await expect(new AssignmentsService(database).pickedUp(delivery.id, rider.id)).rejects.toMatchObject({
+      response: { code: 'delivery_not_ready_for_pickup' },
+      status: 409,
+    });
+  });
+
+  it('marks a picked-up delivery as delivered, frees the rider, and records an event', async () => {
+    const pickedUpDelivery = { ...delivery, status: 'picked_up' as const, delivery_version: 4 };
+    const acceptedAssignment = { ...assignment, status: 'accepted' as const };
+    const completedAt = new Date('2026-09-20T02:00:00.000Z');
+    const completedAssignment = {
+      ...acceptedAssignment,
+      status: 'completed' as const,
+      completed_at: completedAt,
+    };
+    const database = transactionDatabase({
+      delivery: pickedUpDelivery,
+      rider: { ...rider, status: 'busy' as const },
+      activeAssignment: acceptedAssignment,
+      updatedAssignment: completedAssignment,
+      updatedDelivery: { status: 'delivered', delivery_version: 5 },
+    });
+
+    const result = await new AssignmentsService(database).delivered(
+      pickedUpDelivery.id,
+      rider.id,
+    );
+
+    expect(database.writes.delivery).toMatchObject({
+      status: 'delivered',
+      delivery_version: 5,
+    });
+    expect(database.writes.rider).toMatchObject({ status: 'available' });
+    expect(database.writes.assignment).toMatchObject({
+      status: 'completed',
+      completed_at: expect.any(Date),
+    });
+    expect(database.writes.events).toEqual([
+      expect.objectContaining({ event_type: 'delivery_delivered', rider_id: rider.id }),
+    ]);
+    expect(result).toMatchObject({
+      status: 'completed',
+      completedAt,
+      deliveryStatus: 'delivered',
+      deliveryVersion: 5,
+    });
+  });
+
+  it('rejects delivery from accepted state', async () => {
+    const database = transactionDatabase({
+      delivery: { ...delivery, status: 'accepted' as const },
+      rider: { ...rider, status: 'busy' as const },
+    });
+
+    await expect(new AssignmentsService(database).delivered(delivery.id, rider.id)).rejects.toMatchObject({
+      response: { code: 'delivery_not_ready_for_delivery' },
+      status: 409,
+    });
+  });
+
+  it('rejects delivery by a rider without the accepted assignment', async () => {
+    const pickedUpDelivery = { ...delivery, status: 'picked_up' as const };
+    const otherRiderId = '55555555-5555-4555-8555-555555555555';
+    const database = transactionDatabase({
+      delivery: pickedUpDelivery,
+      rider: { ...rider, status: 'busy' as const },
+    });
+
+    await expect(
+      new AssignmentsService(database).delivered(pickedUpDelivery.id, otherRiderId),
+    ).rejects.toMatchObject({
+      response: { code: 'assignment_not_accepted' },
+      status: 409,
+    });
+  });
+
+  it('propagates an event failure so the transaction rolls back delivery and rider changes', async () => {
+    const pickedUpDelivery = { ...delivery, status: 'picked_up' as const, delivery_version: 4 };
+    const database = transactionDatabase({
+      delivery: pickedUpDelivery,
+      rider: { ...rider, status: 'busy' as const },
+      activeAssignment: { ...assignment, status: 'accepted' as const },
+      updatedAssignment: {
+        ...assignment,
+        status: 'completed' as const,
+        completed_at: new Date('2026-09-20T02:00:00.000Z'),
+      },
+      updatedDelivery: { status: 'delivered', delivery_version: 5 },
+      eventError: new Error('event insert failed'),
+    });
+
+    await expect(new AssignmentsService(database).delivered(pickedUpDelivery.id, rider.id)).rejects.toThrow(
+      'event insert failed',
+    );
+    expect(database.writes.assignment).toMatchObject({ status: 'completed' });
+  });
 });
 
 function transactionDatabase(options: {
@@ -151,7 +294,11 @@ function transactionDatabase(options: {
   activeAssignment?: typeof assignment;
   createdAssignment?: typeof assignment;
   updatedAssignment?: typeof assignment;
-  updatedDelivery?: { status: 'assigned' | 'accepted'; delivery_version: number };
+  updatedDelivery?: {
+    status: 'assigned' | 'accepted' | 'picked_up' | 'delivered';
+    delivery_version: number;
+  };
+  eventError?: Error;
 }) {
   const writes: {
     assignment?: Record<string, unknown>;
@@ -190,7 +337,7 @@ function query(result: unknown) {
 function writeBuilder(
   table: string,
   writes: { assignment?: Record<string, unknown>; events: Record<string, unknown>[] },
-  options: { createdAssignment?: typeof assignment },
+  options: { createdAssignment?: typeof assignment; eventError?: Error },
 ) {
   const builder = {
     values: (values: Record<string, unknown>) => {
@@ -204,7 +351,13 @@ function writeBuilder(
     },
     returningAll: () => builder,
     executeTakeFirstOrThrow: vi.fn().mockResolvedValue(options.createdAssignment),
-    execute: vi.fn().mockResolvedValue([]),
+    execute: vi.fn().mockImplementation(() => {
+      if (table === 'delivery_events' && options.eventError !== undefined) {
+        return Promise.reject(options.eventError);
+      }
+
+      return Promise.resolve([]);
+    }),
   };
   return builder;
 }
@@ -218,7 +371,10 @@ function updateBuilder(
   },
   options: {
     updatedAssignment?: typeof assignment;
-    updatedDelivery?: { status: 'assigned' | 'accepted'; delivery_version: number };
+    updatedDelivery?: {
+      status: 'assigned' | 'accepted' | 'picked_up' | 'delivered';
+      delivery_version: number;
+    };
   },
 ) {
   const builder = {

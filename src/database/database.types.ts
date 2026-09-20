@@ -14,7 +14,8 @@ export type DeliveryAssignmentStatus =
   | 'assigned'
   | 'accepted'
   | 'rejected'
-  | 'cancelled';
+  | 'cancelled'
+  | 'completed';
 
 type Numeric = ColumnType<string, string | number, string | number>;
 
@@ -92,6 +93,7 @@ interface DeliveryAssignmentsTable {
   accepted_at: Date | null;
   rejected_at: Date | null;
   cancelled_at: Date | null;
+  completed_at: Date | null;
   created_at: Generated<Date>;
 }
 

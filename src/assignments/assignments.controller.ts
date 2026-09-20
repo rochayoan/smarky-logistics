@@ -22,4 +22,26 @@ export class AssignmentsController {
   ): Promise<AssignmentResponseDto> {
     return this.assignmentsService.accept(deliveryId, parseAssignRiderDto(body).riderId);
   }
+
+  @Post(':deliveryId/picked-up')
+  pickedUp(
+    @Param('deliveryId', new ParseUUIDPipe()) deliveryId: string,
+    @Body() body: unknown,
+  ): Promise<AssignmentResponseDto> {
+    return this.assignmentsService.pickedUp(
+      deliveryId,
+      parseAssignRiderDto(body).riderId,
+    );
+  }
+
+  @Post(':deliveryId/delivered')
+  delivered(
+    @Param('deliveryId', new ParseUUIDPipe()) deliveryId: string,
+    @Body() body: unknown,
+  ): Promise<AssignmentResponseDto> {
+    return this.assignmentsService.delivered(
+      deliveryId,
+      parseAssignRiderDto(body).riderId,
+    );
+  }
 }

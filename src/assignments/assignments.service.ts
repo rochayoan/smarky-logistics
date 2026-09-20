@@ -160,6 +160,127 @@ export class AssignmentsService {
       return toAssignmentResponse(updatedAssignment, updatedDelivery);
     });
   }
+
+  async pickedUp(
+    deliveryId: string,
+    riderId: string,
+  ): Promise<AssignmentResponseDto> {
+    return this.database.transaction().execute(async (trx) => {
+      const delivery = await lockDelivery(trx, deliveryId);
+
+      if (delivery === undefined) {
+        throw new NotFoundException(`Delivery ${deliveryId} was not found`);
+      }
+
+      if (delivery.status !== 'accepted') {
+        throw conflict('delivery_not_ready_for_pickup', 'Delivery must be accepted to pick it up');
+      }
+
+      const assignment = await lockAcceptedAssignment(trx, delivery.id, riderId);
+
+      if (assignment === undefined) {
+        throw conflict('assignment_not_accepted', 'Rider does not have an accepted assignment');
+      }
+
+      const rider = await lockRider(trx, riderId);
+
+      if (rider === undefined || rider.status !== 'busy') {
+        throw conflict('rider_not_busy', 'Rider must be busy to pick up a delivery');
+      }
+
+      const now = new Date();
+      const updatedDelivery = await trx
+        .updateTable('deliveries')
+        .set({
+          status: 'picked_up',
+          delivery_version: delivery.delivery_version + 1,
+          updated_at: now,
+        })
+        .where('id', '=', delivery.id)
+        .returning(['status', 'delivery_version'])
+        .executeTakeFirstOrThrow();
+
+      await trx
+        .insertInto('delivery_events')
+        .values({
+          tenant_id: delivery.tenant_id,
+          delivery_id: delivery.id,
+          rider_id: rider.id,
+          event_type: 'delivery_picked_up',
+          metadata: { assignmentId: assignment.id },
+        })
+        .execute();
+
+      return toAssignmentResponse(assignment, updatedDelivery);
+    });
+  }
+
+  async delivered(
+    deliveryId: string,
+    riderId: string,
+  ): Promise<AssignmentResponseDto> {
+    return this.database.transaction().execute(async (trx) => {
+      const delivery = await lockDelivery(trx, deliveryId);
+
+      if (delivery === undefined) {
+        throw new NotFoundException(`Delivery ${deliveryId} was not found`);
+      }
+
+      if (delivery.status !== 'picked_up') {
+        throw conflict('delivery_not_ready_for_delivery', 'Delivery must be picked up to deliver it');
+      }
+
+      const assignment = await lockAcceptedAssignment(trx, delivery.id, riderId);
+
+      if (assignment === undefined) {
+        throw conflict('assignment_not_accepted', 'Rider does not have an accepted assignment');
+      }
+
+      const rider = await lockRider(trx, riderId);
+
+      if (rider === undefined || rider.status !== 'busy') {
+        throw conflict('rider_not_busy', 'Rider must be busy to complete a delivery');
+      }
+
+      const now = new Date();
+      const updatedDelivery = await trx
+        .updateTable('deliveries')
+        .set({
+          status: 'delivered',
+          delivery_version: delivery.delivery_version + 1,
+          updated_at: now,
+        })
+        .where('id', '=', delivery.id)
+        .returning(['status', 'delivery_version'])
+        .executeTakeFirstOrThrow();
+
+      const updatedAssignment = await trx
+        .updateTable('delivery_assignments')
+        .set({ status: 'completed', completed_at: now })
+        .where('id', '=', assignment.id)
+        .returningAll()
+        .executeTakeFirstOrThrow();
+
+      await trx
+        .updateTable('riders')
+        .set({ status: 'available', updated_at: now })
+        .where('id', '=', rider.id)
+        .execute();
+
+      await trx
+        .insertInto('delivery_events')
+        .values({
+          tenant_id: delivery.tenant_id,
+          delivery_id: delivery.id,
+          rider_id: rider.id,
+          event_type: 'delivery_delivered',
+          metadata: { assignmentId: assignment.id },
+        })
+        .execute();
+
+      return toAssignmentResponse(updatedAssignment, updatedDelivery);
+    });
+  }
 }
 
 function lockDelivery(
@@ -186,6 +307,21 @@ function lockRider(
     .executeTakeFirst();
 }
 
+function lockAcceptedAssignment(
+  trx: Transaction<Database>,
+  deliveryId: string,
+  riderId: string,
+): Promise<AssignmentRow | undefined> {
+  return trx
+    .selectFrom('delivery_assignments')
+    .selectAll()
+    .where('delivery_id', '=', deliveryId)
+    .where('rider_id', '=', riderId)
+    .where('status', '=', 'accepted')
+    .forUpdate()
+    .executeTakeFirst();
+}
+
 function toAssignmentResponse(
   assignment: AssignmentRow,
   delivery: Pick<DeliveryRow, 'status' | 'delivery_version'>,
@@ -198,6 +334,7 @@ function toAssignmentResponse(
     status: assignment.status,
     assignedAt: assignment.assigned_at,
     acceptedAt: assignment.accepted_at,
+    completedAt: assignment.completed_at,
     createdAt: assignment.created_at,
     deliveryStatus: delivery.status,
     deliveryVersion: delivery.delivery_version,

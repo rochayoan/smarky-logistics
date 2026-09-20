@@ -8,6 +8,7 @@ export interface AssignmentResponseDto {
   status: DeliveryAssignmentStatus;
   assignedAt: Date;
   acceptedAt: Date | null;
+  completedAt: Date | null;
   createdAt: Date;
   deliveryStatus: DeliveryStatus;
   deliveryVersion: number;
