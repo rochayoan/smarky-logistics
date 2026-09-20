@@ -63,8 +63,10 @@ interface DeliveriesTable {
   id: Generated<string>;
   tenant_id: string;
   restaurant_id: string;
-  branch_id: string | null;
+  branch_id: string;
   external_order_id: string | null;
+  source_system: Generated<string>;
+  delivery_version: Generated<number>;
   status: Generated<DeliveryStatus>;
   pickup_address: string | null;
   pickup_latitude: number | null;
