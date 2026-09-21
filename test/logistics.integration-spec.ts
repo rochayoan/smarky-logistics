@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { ConflictException } from '@nestjs/common';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Kysely, PostgresDialect } from 'kysely';
 import { Pool } from 'pg';
@@ -197,6 +198,21 @@ integrationDescribe('Smarky Logistics PostgreSQL integration', () => {
     expect(fulfilled).toHaveLength(1);
     expect(rejected).toHaveLength(1);
     expect((rejected[0] as PromiseRejectedResult).reason).toMatchObject({ code: '23505' });
+  });
+
+  it('returns the original delivery ID for a duplicate external order', async () => {
+    const deliveriesService = new DeliveriesService(database as never);
+    const original = await createDelivery(deliveriesService, 'duplicate-external-order');
+
+    await expect(
+      createDelivery(deliveriesService, 'duplicate-external-order'),
+    ).rejects.toMatchObject({
+      response: {
+        code: 'delivery_already_exists',
+        deliveryId: original.id,
+      },
+      status: 409,
+    } satisfies Partial<ConflictException>);
   });
 });
 

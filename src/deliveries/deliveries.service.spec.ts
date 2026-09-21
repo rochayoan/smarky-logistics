@@ -97,7 +97,16 @@ describe('DeliveriesService', () => {
     });
   });
 
-  it('converts an external-order uniqueness conflict into a domain conflict', async () => {
+  it('returns the original delivery ID when a duplicate external order conflicts', async () => {
+    const where = vi.fn();
+    const existingDelivery = { id: createdDelivery.id };
+    const query = {
+      where: (...args: unknown[]) => {
+        where(...args);
+        return query;
+      },
+      executeTakeFirst: vi.fn().mockResolvedValue(existingDelivery),
+    };
     const database = {
       transaction: vi.fn(() => ({
         execute: vi.fn().mockRejectedValue({
@@ -105,6 +114,7 @@ describe('DeliveriesService', () => {
           constraint: 'deliveries_tenant_id_source_system_external_order_id_key',
         }),
       })),
+      selectFrom: vi.fn(() => ({ select: () => query })),
     } as unknown as DatabaseService;
     const service = new DeliveriesService(database);
 
@@ -129,9 +139,61 @@ describe('DeliveriesService', () => {
     ).rejects.toMatchObject({
       response: {
         code: 'delivery_already_exists',
+        deliveryId: createdDelivery.id,
       },
       status: 409,
     });
+
+    expect(where).toHaveBeenCalledWith('tenant_id', '=', createdDelivery.tenant_id);
+    expect(where).toHaveBeenCalledWith('source_system', '=', createdDelivery.source_system);
+    expect(where).toHaveBeenCalledWith('external_order_id', '=', createdDelivery.external_order_id);
+  });
+
+  it('does not expose another tenant delivery ID while resolving a duplicate conflict', async () => {
+    const tenantB = '55555555-5555-4555-8555-555555555555';
+    const where = vi.fn();
+    const query = {
+      where: (...args: unknown[]) => {
+        where(...args);
+        return query;
+      },
+      executeTakeFirst: vi.fn().mockResolvedValue(undefined),
+    };
+    const database = {
+      transaction: vi.fn(() => ({
+        execute: vi.fn().mockRejectedValue({
+          code: '23505',
+          constraint: 'deliveries_tenant_id_source_system_external_order_id_key',
+        }),
+      })),
+      selectFrom: vi.fn(() => ({ select: () => query })),
+    } as unknown as DatabaseService;
+
+    await expect(
+      new DeliveriesService(database).create(tenantB, {
+        tenantId: tenantB,
+        restaurantId: createdDelivery.restaurant_id,
+        branchId: createdDelivery.branch_id,
+        externalOrderId: createdDelivery.external_order_id,
+        sourceSystem: createdDelivery.source_system,
+        pickupAddress: null,
+        pickupLatitude: null,
+        pickupLongitude: null,
+        dropoffAddress: createdDelivery.dropoff_address,
+        dropoffLatitude: createdDelivery.dropoff_latitude,
+        dropoffLongitude: createdDelivery.dropoff_longitude,
+        customerName: null,
+        customerPhone: null,
+        customerNotes: null,
+        deliveryFee: null,
+      }),
+    ).rejects.toMatchObject({
+      response: { code: 'delivery_already_exists' },
+      status: 409,
+    });
+
+    expect(where).toHaveBeenCalledWith('tenant_id', '=', tenantB);
+    expect(where).not.toHaveBeenCalledWith('tenant_id', '=', createdDelivery.tenant_id);
   });
 
   it('returns 404 when a delivery does not exist', async () => {

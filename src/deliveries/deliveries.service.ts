@@ -61,9 +61,17 @@ export class DeliveriesService {
       });
     } catch (error) {
       if (isExternalOrderConflict(error)) {
+        const existingDelivery = await findExistingDelivery(
+          this.database,
+          tenantId,
+          createDeliveryDto.sourceSystem,
+          createDeliveryDto.externalOrderId,
+        );
+
         throw new ConflictException({
           code: 'delivery_already_exists',
           message: 'A delivery already exists for this external order',
+          ...(existingDelivery === undefined ? {} : { deliveryId: existingDelivery.id }),
         });
       }
 
@@ -85,6 +93,25 @@ export class DeliveriesService {
 
     return toDeliveryResponse(delivery);
   }
+}
+
+async function findExistingDelivery(
+  database: DatabaseService,
+  tenantId: string,
+  sourceSystem: string,
+  externalOrderId: string | null,
+): Promise<{ id: string } | undefined> {
+  if (externalOrderId === null) {
+    return undefined;
+  }
+
+  return database
+    .selectFrom('deliveries')
+    .select('id')
+    .where('tenant_id', '=', tenantId)
+    .where('source_system', '=', sourceSystem)
+    .where('external_order_id', '=', externalOrderId)
+    .executeTakeFirst();
 }
 
 function toDeliveryResponse(delivery: DeliveryRow): DeliveryResponseDto {
