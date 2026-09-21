@@ -10,14 +10,18 @@ export class DatabaseService
   implements OnApplicationShutdown
 {
   constructor(configService: ConfigService) {
-    const connectionString = configService.getOrThrow<string>('DATABASE_URL');
-    const ssl = configService.get<string>('DATABASE_SSL') !== 'false';
+    const connectionString = withoutSslConnectionParameters(
+      configService.getOrThrow<string>('DATABASE_URL'),
+    );
+    const sslEnabled = configService.get<string>('DATABASE_SSL') !== 'false';
+    const rejectUnauthorized =
+      configService.get<string>('DATABASE_SSL_REJECT_UNAUTHORIZED') !== 'false';
 
     super({
       dialect: new PostgresDialect({
         pool: new Pool({
           connectionString,
-          ssl,
+          ssl: sslEnabled ? { rejectUnauthorized } : false,
         }),
       }),
     });
@@ -26,4 +30,14 @@ export class DatabaseService
   async onApplicationShutdown(): Promise<void> {
     await this.destroy();
   }
+}
+
+function withoutSslConnectionParameters(connectionString: string): string {
+  const url = new URL(connectionString);
+
+  for (const parameter of ['sslmode', 'sslcert', 'sslkey', 'sslrootcert', 'sslcrl']) {
+    url.searchParams.delete(parameter);
+  }
+
+  return url.toString();
 }

@@ -36,7 +36,7 @@ describe('AssignmentsService', () => {
     });
     const service = new AssignmentsService(database);
 
-    const result = await service.assign(delivery.id, { riderId: rider.id });
+    const result = await service.assign(delivery.tenant_id, delivery.id, rider.id);
 
     expect(database.writes.assignment).toMatchObject({ status: 'assigned' });
     expect(database.writes.delivery).toMatchObject({
@@ -60,7 +60,7 @@ describe('AssignmentsService', () => {
       rider: { ...rider, tenant_id: '55555555-5555-4555-8555-555555555555' },
     });
 
-    await expect(new AssignmentsService(database).assign(delivery.id, { riderId: rider.id })).rejects.toMatchObject({
+    await expect(new AssignmentsService(database).assign(delivery.tenant_id, delivery.id, rider.id)).rejects.toMatchObject({
       response: { code: 'rider_tenant_mismatch' },
       status: 409,
     });
@@ -72,7 +72,7 @@ describe('AssignmentsService', () => {
       rider: { ...rider, status: 'busy' as const },
     });
 
-    await expect(new AssignmentsService(database).assign(delivery.id, { riderId: rider.id })).rejects.toMatchObject({
+    await expect(new AssignmentsService(database).assign(delivery.tenant_id, delivery.id, rider.id)).rejects.toMatchObject({
       response: { code: 'rider_unavailable' },
       status: 409,
     });
@@ -84,7 +84,7 @@ describe('AssignmentsService', () => {
       rider,
     });
 
-    await expect(new AssignmentsService(database).assign(delivery.id, { riderId: rider.id })).rejects.toMatchObject({
+    await expect(new AssignmentsService(database).assign(delivery.tenant_id, delivery.id, rider.id)).rejects.toMatchObject({
       response: { code: 'delivery_not_assignable' },
       status: 409,
     });
@@ -95,7 +95,7 @@ describe('AssignmentsService', () => {
       transaction: vi.fn(() => ({ execute: vi.fn().mockRejectedValue({ code: '23505' }) })),
     } as unknown as DatabaseService;
 
-    await expect(new AssignmentsService(database).assign(delivery.id, { riderId: rider.id })).rejects.toMatchObject({
+    await expect(new AssignmentsService(database).assign(delivery.tenant_id, delivery.id, rider.id)).rejects.toMatchObject({
       response: { code: 'assignment_conflict' },
       status: 409,
     });
@@ -117,7 +117,7 @@ describe('AssignmentsService', () => {
     });
     const service = new AssignmentsService(database);
 
-    const result = await service.accept(assignedDelivery.id, rider.id);
+    const result = await service.accept(assignedDelivery.tenant_id, assignedDelivery.id, rider.id);
 
     expect(database.writes.assignment).toMatchObject({ status: 'accepted', accepted_at: expect.any(Date) });
     expect(database.writes.delivery).toMatchObject({ status: 'accepted', delivery_version: 3 });
@@ -140,7 +140,7 @@ describe('AssignmentsService', () => {
       rider,
     });
 
-    await expect(new AssignmentsService(database).accept(delivery.id, rider.id)).rejects.toMatchObject({
+    await expect(new AssignmentsService(database).accept(delivery.tenant_id, delivery.id, rider.id)).rejects.toMatchObject({
       response: { code: 'assignment_not_assignable' },
       status: 409,
     });
@@ -157,6 +157,7 @@ describe('AssignmentsService', () => {
     });
 
     const result = await new AssignmentsService(database).pickedUp(
+      acceptedDelivery.tenant_id,
       acceptedDelivery.id,
       rider.id,
     );
@@ -178,7 +179,7 @@ describe('AssignmentsService', () => {
       rider: { ...rider, status: 'busy' as const },
     });
 
-    await expect(new AssignmentsService(database).pickedUp(delivery.id, rider.id)).rejects.toMatchObject({
+    await expect(new AssignmentsService(database).pickedUp(delivery.tenant_id, delivery.id, rider.id)).rejects.toMatchObject({
       response: { code: 'assignment_not_accepted' },
       status: 409,
     });
@@ -190,7 +191,7 @@ describe('AssignmentsService', () => {
       rider: { ...rider, status: 'busy' as const },
     });
 
-    await expect(new AssignmentsService(database).pickedUp(delivery.id, rider.id)).rejects.toMatchObject({
+    await expect(new AssignmentsService(database).pickedUp(delivery.tenant_id, delivery.id, rider.id)).rejects.toMatchObject({
       response: { code: 'delivery_not_ready_for_pickup' },
       status: 409,
     });
@@ -214,6 +215,7 @@ describe('AssignmentsService', () => {
     });
 
     const result = await new AssignmentsService(database).delivered(
+      pickedUpDelivery.tenant_id,
       pickedUpDelivery.id,
       rider.id,
     );
@@ -244,7 +246,7 @@ describe('AssignmentsService', () => {
       rider: { ...rider, status: 'busy' as const },
     });
 
-    await expect(new AssignmentsService(database).delivered(delivery.id, rider.id)).rejects.toMatchObject({
+    await expect(new AssignmentsService(database).delivered(delivery.tenant_id, delivery.id, rider.id)).rejects.toMatchObject({
       response: { code: 'delivery_not_ready_for_delivery' },
       status: 409,
     });
@@ -259,7 +261,7 @@ describe('AssignmentsService', () => {
     });
 
     await expect(
-      new AssignmentsService(database).delivered(pickedUpDelivery.id, otherRiderId),
+      new AssignmentsService(database).delivered(pickedUpDelivery.tenant_id, pickedUpDelivery.id, otherRiderId),
     ).rejects.toMatchObject({
       response: { code: 'assignment_not_accepted' },
       status: 409,
@@ -281,7 +283,7 @@ describe('AssignmentsService', () => {
       eventError: new Error('event insert failed'),
     });
 
-    await expect(new AssignmentsService(database).delivered(pickedUpDelivery.id, rider.id)).rejects.toThrow(
+    await expect(new AssignmentsService(database).delivered(pickedUpDelivery.tenant_id, pickedUpDelivery.id, rider.id)).rejects.toThrow(
       'event insert failed',
     );
     expect(database.writes.assignment).toMatchObject({ status: 'completed' });

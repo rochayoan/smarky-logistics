@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { AssignmentsModule } from './assignments/assignments.module.js';
+import { AuthModule } from './auth/auth.module.js';
 import configuration from './config/configuration.js';
 import { DatabaseModule } from './database/database.module.js';
 import { DeliveriesModule } from './deliveries/deliveries.module.js';
@@ -14,6 +15,7 @@ import { RidersModule } from './riders/riders.module.js';
       load: [configuration],
     }),
     DatabaseModule,
+    AuthModule,
     AssignmentsModule,
     DeliveriesModule,
     HealthModule,

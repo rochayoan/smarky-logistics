@@ -24,7 +24,7 @@ describe('RidersService', () => {
     } as unknown as DatabaseService;
     const service = new RidersService(database);
 
-    const result = await service.create({
+    const result = await service.create(rider.tenant_id, {
       tenantId: rider.tenant_id,
       name: rider.name,
       phone: null,
@@ -45,7 +45,7 @@ describe('RidersService', () => {
     const database = transactionDatabase({ rider, updatedRider });
     const service = new RidersService(database);
 
-    const result = await service.updateAvailability(rider.id, 'available');
+    const result = await service.updateAvailability(rider.tenant_id, rider.id, 'available');
 
     expect(database.writes.rider).toMatchObject({ status: 'available' });
     expect(result.status).toBe('available');
@@ -58,7 +58,7 @@ describe('RidersService', () => {
     });
     const service = new RidersService(database);
 
-    await expect(service.updateAvailability(rider.id, 'offline')).rejects.toMatchObject({
+    await expect(service.updateAvailability(rider.tenant_id, rider.id, 'offline')).rejects.toMatchObject({
       response: { code: 'rider_has_active_assignment' },
       status: 409,
     } satisfies Partial<ConflictException>);

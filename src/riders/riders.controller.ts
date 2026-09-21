@@ -16,36 +16,38 @@ import {
   type RiderAvailabilityStatus,
 } from './dto/update-rider-availability.dto.js';
 import { RidersService } from './riders.service.js';
+import { CurrentTenant } from '../auth/auth.decorators.js';
+import type { TenantContext } from '../auth/auth.types.js';
+import { assertTenantContext } from '../auth/tenant-context.js';
 
 @Controller('v1/riders')
 export class RidersController {
   constructor(private readonly ridersService: RidersService) {}
 
   @Post()
-  create(@Body() body: unknown): Promise<RiderResponseDto> {
-    return this.ridersService.create(parseCreateRiderDto(body));
+  create(@Body() body: unknown, @CurrentTenant() context: TenantContext): Promise<RiderResponseDto> {
+    const dto = parseCreateRiderDto(body); assertTenantContext(context, dto.tenantId); return this.ridersService.create(context.tenantId, dto);
   }
 
   @Get()
   list(
     @Query('tenantId') tenantIdValue: unknown,
-    @Query('status') status?: RiderAvailabilityStatus | 'busy',
+    @Query('status') status: RiderAvailabilityStatus | 'busy' | undefined, @CurrentTenant() context: TenantContext,
   ): Promise<RiderResponseDto[]> {
     if (status !== undefined && status !== 'offline' && status !== 'available' && status !== 'busy') {
       throw new BadRequestException('status must be offline, available, or busy');
     }
 
-    return this.ridersService.list(parseTenantId(tenantIdValue), status);
+    const tenantId = tenantIdValue === undefined ? context.tenantId : parseTenantId(tenantIdValue); assertTenantContext(context, tenantId); return this.ridersService.list(context.tenantId, status);
   }
 
   @Patch(':id/availability')
   updateAvailability(
     @Param('id', new ParseUUIDPipe()) id: string,
-    @Body() body: unknown,
+    @Body() body: unknown, @CurrentTenant() context: TenantContext,
   ): Promise<RiderResponseDto> {
     return this.ridersService.updateAvailability(
-      id,
-      parseUpdateRiderAvailabilityDto(body).status,
+      context.tenantId, id, parseUpdateRiderAvailabilityDto(body).status,
     );
   }
 }

@@ -21,6 +21,7 @@
     "test:debug": "vitest --inspect-brk --no-file-parallelism",
     "test:e2e": "vitest run --config ./vitest.config.e2e.ts",
     "test:integration": "vitest run --config ./vitest.config.integration.ts"
+    ,"generate:api-client": "node scripts/generate-api-client.mjs"
   },
   "dependencies": {
     "@nestjs/common": "^12.0.1",

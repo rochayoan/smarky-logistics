@@ -48,7 +48,7 @@ describe('DeliveriesService', () => {
     const database = { transaction } as unknown as DatabaseService;
     const service = new DeliveriesService(database);
 
-    const result = await service.create({
+    const result = await service.create(createdDelivery.tenant_id, {
       tenantId: createdDelivery.tenant_id,
       restaurantId: createdDelivery.restaurant_id,
       branchId: createdDelivery.branch_id,
@@ -109,7 +109,7 @@ describe('DeliveriesService', () => {
     const service = new DeliveriesService(database);
 
     await expect(
-      service.create({
+      service.create(createdDelivery.tenant_id, {
         tenantId: createdDelivery.tenant_id,
         restaurantId: createdDelivery.restaurant_id,
         branchId: createdDelivery.branch_id,
@@ -136,17 +136,12 @@ describe('DeliveriesService', () => {
 
   it('returns 404 when a delivery does not exist', async () => {
     const executeTakeFirst = vi.fn().mockResolvedValue(undefined);
-    const database = {
-      selectFrom: vi.fn(() => ({
-        selectAll: () => ({
-          where: () => ({ executeTakeFirst }),
-        }),
-      })),
-    } as unknown as DatabaseService;
+    const query = { where: () => query, executeTakeFirst };
+    const database = { selectFrom: vi.fn(() => ({ selectAll: () => query })) } as unknown as DatabaseService;
     const service = new DeliveriesService(database);
 
     await expect(
-      service.findOne('11111111-1111-4111-8111-111111111111'),
+      service.findOne('22222222-2222-4222-8222-222222222222', '11111111-1111-4111-8111-111111111111'),
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 });

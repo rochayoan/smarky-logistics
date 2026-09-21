@@ -1,6 +1,7 @@
 import type { ColumnType, Generated } from 'kysely';
 
 export type RiderStatus = 'offline' | 'available' | 'busy';
+export type ApiClientType = 'internal_service' | 'tenant_client';
 
 export type DeliveryStatus =
   | 'pending'
@@ -106,6 +107,7 @@ interface DeliveryEventsTable {
   metadata: Generated<Record<string, unknown>>;
   created_at: Generated<Date>;
 }
+interface ApiClientsTable { id: Generated<string>; name: string; client_type: ApiClientType; tenant_id: string | null; token_hash: string; token_prefix: string | null; is_active: Generated<boolean>; created_at: Generated<Date>; updated_at: Generated<Date>; }
 
 export interface Database {
   tenants: TenantsTable;
@@ -115,4 +117,5 @@ export interface Database {
   deliveries: DeliveriesTable;
   delivery_assignments: DeliveryAssignmentsTable;
   delivery_events: DeliveryEventsTable;
+  api_clients: ApiClientsTable;
 }

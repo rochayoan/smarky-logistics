@@ -14,11 +14,11 @@ const ACTIVE_ASSIGNMENT_STATUSES = ['assigned', 'accepted'] as const;
 export class RidersService {
   constructor(private readonly database: DatabaseService) {}
 
-  async create(createRiderDto: CreateRiderDto): Promise<RiderResponseDto> {
+  async create(tenantId: string, createRiderDto: CreateRiderDto): Promise<RiderResponseDto> {
     const rider = await this.database
       .insertInto('riders')
       .values({
-        tenant_id: createRiderDto.tenantId,
+        tenant_id: tenantId,
         name: createRiderDto.name,
         phone: createRiderDto.phone,
         status: 'offline',
@@ -46,26 +46,26 @@ export class RidersService {
   }
 
   async updateAvailability(
-    id: string,
-    status: RiderAvailabilityStatus,
+    tenantId: string, riderId: string, status: RiderAvailabilityStatus,
   ): Promise<RiderResponseDto> {
     return this.database.transaction().execute(async (trx) => {
-      const rider = await trx
+      let riderQuery = trx
         .selectFrom('riders')
         .selectAll()
-        .where('id', '=', id)
-        .forUpdate()
-        .executeTakeFirst();
+        .where('id', '=', riderId);
+      riderQuery = riderQuery.where('tenant_id', '=', tenantId);
+      const rider = await riderQuery.forUpdate().executeTakeFirst();
 
       if (rider === undefined) {
-        throw new NotFoundException(`Rider ${id} was not found`);
+        throw new NotFoundException(`Rider ${riderId} was not found`);
       }
 
       if (status === 'offline') {
         const activeAssignment = await trx
           .selectFrom('delivery_assignments')
           .select('id')
-          .where('rider_id', '=', id)
+          .where('rider_id', '=', riderId)
+          .where('tenant_id', '=', tenantId)
           .where('status', 'in', ACTIVE_ASSIGNMENT_STATUSES)
           .forUpdate()
           .executeTakeFirst();
@@ -81,7 +81,8 @@ export class RidersService {
       const updatedRider = await trx
         .updateTable('riders')
         .set({ status, updated_at: new Date() })
-        .where('id', '=', id)
+        .where('id', '=', riderId)
+        .where('tenant_id', '=', tenantId)
         .returningAll()
         .executeTakeFirstOrThrow();
 

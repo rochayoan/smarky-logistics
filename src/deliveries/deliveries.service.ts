@@ -11,13 +11,13 @@ type DeliveryRow = Selectable<Database['deliveries']>;
 export class DeliveriesService {
   constructor(private readonly database: DatabaseService) {}
 
-  async create(createDeliveryDto: CreateDeliveryDto): Promise<DeliveryResponseDto> {
+  async create(tenantId: string, createDeliveryDto: CreateDeliveryDto): Promise<DeliveryResponseDto> {
     try {
       return await this.database.transaction().execute(async (trx) => {
         const delivery = await trx
           .insertInto('deliveries')
           .values({
-            tenant_id: createDeliveryDto.tenantId,
+            tenant_id: tenantId,
             restaurant_id: createDeliveryDto.restaurantId,
             branch_id: createDeliveryDto.branchId,
             external_order_id: createDeliveryDto.externalOrderId,
@@ -71,12 +71,13 @@ export class DeliveriesService {
     }
   }
 
-  async findOne(id: string): Promise<DeliveryResponseDto> {
-    const delivery = await this.database
+  async findOne(tenantId: string, id: string): Promise<DeliveryResponseDto> {
+    let query = this.database
       .selectFrom('deliveries')
       .selectAll()
-      .where('id', '=', id)
-      .executeTakeFirst();
+      .where('id', '=', id);
+    query = query.where('tenant_id', '=', tenantId);
+    const delivery = await query.executeTakeFirst();
 
     if (delivery === undefined) {
       throw new NotFoundException(`Delivery ${id} was not found`);

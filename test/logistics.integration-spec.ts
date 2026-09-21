@@ -31,7 +31,9 @@ integrationDescribe('Smarky Logistics PostgreSQL integration', () => {
       dialect: new PostgresDialect({
         pool: new Pool({
           connectionString: withoutSslConnectionParameters(connectionString),
-          ssl: { rejectUnauthorized: false },
+          ssl: process.env.DATABASE_SSL === 'false'
+            ? false
+            : { rejectUnauthorized: process.env.DATABASE_SSL_REJECT_UNAUTHORIZED !== 'false' },
         }),
       }),
     });
@@ -63,9 +65,9 @@ integrationDescribe('Smarky Logistics PostgreSQL integration', () => {
 
     const ridersService = new RidersService(database as never);
     const [riderOne, , riderThree] = await Promise.all([
-      ridersService.create({ tenantId, name: `${testPrefix}-rider-1`, phone: null }),
-      ridersService.create({ tenantId, name: `${testPrefix}-rider-2`, phone: null }),
-      ridersService.create({ tenantId, name: `${testPrefix}-rider-3`, phone: null }),
+      ridersService.create(tenantId, { tenantId, name: `${testPrefix}-rider-1`, phone: null }),
+      ridersService.create(tenantId, { tenantId, name: `${testPrefix}-rider-2`, phone: null }),
+      ridersService.create(tenantId, { tenantId, name: `${testPrefix}-rider-3`, phone: null }),
     ]);
     riderOneId = riderOne.id;
     riderThreeId = riderThree.id;
@@ -96,23 +98,23 @@ integrationDescribe('Smarky Logistics PostgreSQL integration', () => {
     const deliveriesService = new DeliveriesService(database as never);
     const assignmentsService = new AssignmentsService(database as never);
 
-    await ridersService.updateAvailability(riderOneId, 'available');
+    await ridersService.updateAvailability(tenantId, riderOneId, 'available');
     const deliveryOne = await createDelivery(deliveriesService, 'delivery-1');
     expect(deliveryOne).toMatchObject({ status: 'pending', deliveryVersion: 1 });
 
-    const assigned = await assignmentsService.assign(deliveryOne.id, { riderId: riderOneId });
+    const assigned = await assignmentsService.assign(tenantId, deliveryOne.id, riderOneId);
     expect(assigned).toMatchObject({ status: 'assigned', deliveryStatus: 'assigned', deliveryVersion: 2 });
     await expectRiderStatus(riderOneId, 'busy');
 
-    const accepted = await assignmentsService.accept(deliveryOne.id, riderOneId);
+    const accepted = await assignmentsService.accept(tenantId, deliveryOne.id, riderOneId);
     expect(accepted).toMatchObject({ status: 'accepted', deliveryStatus: 'accepted', deliveryVersion: 3 });
     await expectRiderStatus(riderOneId, 'busy');
 
-    const pickedUp = await assignmentsService.pickedUp(deliveryOne.id, riderOneId);
+    const pickedUp = await assignmentsService.pickedUp(tenantId, deliveryOne.id, riderOneId);
     expect(pickedUp).toMatchObject({ status: 'accepted', deliveryStatus: 'picked_up', deliveryVersion: 4 });
     await expectRiderStatus(riderOneId, 'busy');
 
-    const delivered = await assignmentsService.delivered(deliveryOne.id, riderOneId);
+    const delivered = await assignmentsService.delivered(tenantId, deliveryOne.id, riderOneId);
     expect(delivered).toMatchObject({
       status: 'completed',
       deliveryStatus: 'delivered',
@@ -144,7 +146,7 @@ integrationDescribe('Smarky Logistics PostgreSQL integration', () => {
     ]);
 
     const deliveryTwo = await createDelivery(deliveriesService, 'delivery-2');
-    const assignmentTwo = await assignmentsService.assign(deliveryTwo.id, { riderId: riderOneId });
+    const assignmentTwo = await assignmentsService.assign(tenantId, deliveryTwo.id, riderOneId);
     expect(assignmentTwo).toMatchObject({ status: 'assigned', deliveryStatus: 'assigned' });
     await expectRiderStatus(riderOneId, 'busy');
 
@@ -199,7 +201,7 @@ integrationDescribe('Smarky Logistics PostgreSQL integration', () => {
 });
 
 async function createDelivery(deliveriesService: DeliveriesService, suffix: string) {
-  return deliveriesService.create({
+  return deliveriesService.create(tenantId, {
     tenantId,
     restaurantId,
     branchId,
